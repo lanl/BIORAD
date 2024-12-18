@@ -10,7 +10,7 @@ def main():
 
     # Command line arguments (via argparse)
     parser = argparse.ArgumentParser( 
-        description='Label PubMed IDs that correspond to OpenAccess records and add the PMC IDv.{}'.
+        description='Label PubMed IDs that correspond to OpenAccess records and add the PMC ID v.{}'.
         format(VERSION),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter )
 
