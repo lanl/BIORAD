@@ -4,6 +4,9 @@
 INPUT_DIR="heterodimer_pdb"
 OUTPUT_DIR="heterodimer_pdb_hydrogen"
 
+# Create the output directory if it does not already exist
+mkdir -p $OUTPUT_DIR
+
 for INPUT_FILE in ${INPUT_DIR}/*.pdb
 do
     OUTPUT_FILE=$(basename $INPUT_FILE)
