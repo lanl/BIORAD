@@ -2,7 +2,6 @@
 #define __REGRESSION
 
 #include "pdb.h"
-//#include "mpi_util.h"
 #include "options.h"
 #include <deque>
 #include <vector>
@@ -236,10 +235,12 @@ typedef std::vector<RowColumn> PairwiseDistanceFeature;
 // In features.cpp
 Features composition_features(const PDBComplex &m_pdb);
 
+#ifdef USE_GSL
 std::vector<double> linear_features(const PDBComplex &m_pdb, const std::unordered_map<std::string, unsigned int> &m_atom_table);
 std::vector<double> compute_linear_regression(const std::vector<WeightedValue> &m_data, 
     const std::vector<const std::vector<double>*> &m_features, const bool m_use_bias);
 double linear_prediction(const std::vector<double> &m_model, const std::vector<double> &m_features);
+#endif // USE_GSL
 
 Features extract_features(const PDBComplex &m_pdb, const std::unordered_map<std::string, unsigned int> &m_atom_table, 
     const std::string &m_id, const Options &m_opt);

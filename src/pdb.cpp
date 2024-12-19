@@ -9,6 +9,7 @@
 #include <fstream>
 #include <regex>
 #include <unordered_set>
+#include <sstream>
 #include <iostream> // debug
 
 using namespace std;

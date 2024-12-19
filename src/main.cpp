@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <math.h>
-#include <mpi.h>
+#include <string.h>
 
 #include "pdb.h"
 #include "options.h"
@@ -27,8 +27,8 @@
 using namespace std;
 
 // Global variables for MPI
-int mpi_numtasks;
-int mpi_rank;
+int mpi_numtasks = 1; // Default for non-MPI operation
+int mpi_rank = 0; // Default for non-MPI operation
 double start_time;
 
 #define     IS_ROOT     (mpi_rank == 0)
@@ -44,7 +44,6 @@ struct find_by_accession
 typedef vector< pair<float /*observed*/, float /*predicted*/> > ClusterPredictions;
 
 void terminate_program(int m_sig);
-string report_run_time();
 
 vector< pair<string, Affinity> > parse_affinity(const string &m_affinity_file);
 vector< pair<string, Affinity> >::const_iterator affinity_lookup(const vector< pair<string, Affinity> > &m_data, 
@@ -77,6 +76,7 @@ int main(int argc, char* argv[])
 {
     try{
 
+        #ifdef USE_MPI
         MPI_Init(&argc, &argv);
         MPI_Comm_size(MPI_COMM_WORLD, &mpi_numtasks);
         MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -86,6 +86,7 @@ int main(int argc, char* argv[])
         signal( SIGSEGV, terminate_program );
 
         start_time = MPI_Wtime();
+        #endif // USE_MPI
 
         Options opt;
         
@@ -98,11 +99,16 @@ int main(int argc, char* argv[])
             opt.load(argc, argv);
         }
 
+        #ifdef USE_MPI
         broadcast(opt, 0);
+        #endif // USE_MPI
 
         if(opt.quit){
 
+            #ifdef USE_MPI
             MPI_Finalize();
+            #endif // USE_MPI
+
             return EXIT_SUCCESS;
         }
 
@@ -576,6 +582,7 @@ int main(int argc, char* argv[])
             new_clusters.swap(clusters);
         }
 
+        #ifdef USE_MPI
         // Share the affinity, (optional) rosetta scores, structural and cluster data with all nodes
         broadcast(affinity_data, 0);
         broadcast(rosetta_scores, 0);
@@ -583,6 +590,7 @@ int main(int argc, char* argv[])
         broadcast(pdb_data, 0);
         broadcast(clusters, 0);
         broadcast(atom_table, 0);
+        #endif // USE_MPI
 
         // Predict protein-complex affinity for each clustering
         const size_t num_clusterings = clusters.size();
@@ -629,9 +637,11 @@ int main(int argc, char* argv[])
         DEFINE_AND_ALLOCATE(model_stdev_R2_baseline, num_clusterings);
         //////////////////////////////////////////////////////////////////
 
+        #ifdef USE_GSL
         DEFINE_AND_ALLOCATE(linear_ave_correlation, num_clusterings);
         DEFINE_AND_ALLOCATE(linear_stdev_correlation, num_clusterings);
         DEFINE_AND_ALLOCATE(linear_ave_p_value, num_clusterings);
+        #endif // USE_GSL
 
         //////////////////////////////////////////////////////////////////
 
@@ -643,7 +653,10 @@ int main(int argc, char* argv[])
         // Precompute all of the features for the structures that have associated affinity data
         unordered_map<string, Features> baseline_features;
         unordered_map<string, Features> structural_features;
+
+        #ifdef USE_GSL
         unordered_map< string, vector<double> > linear_regression_features;
+        #endif // USE_GSL
 
         time_t profile = time(NULL);
 
@@ -706,15 +719,20 @@ int main(int argc, char* argv[])
                 }
             }
 
+            #ifdef USE_GSL
             const vector<double> linear = opt.use_linear_regression ? 
                 linear_features(j->second, atom_table) : 
                 vector<double>();
+            #endif // USE_GSL
 
             #pragma omp critical
             {
                 baseline_features[affinity_data[i].first] = baseline;
                 structural_features[affinity_data[i].first] = structural;
+
+                #ifdef USE_GSL
                 linear_regression_features[affinity_data[i].first] = linear;
+                #endif // USE_GSL
             }
         }
 
@@ -741,13 +759,21 @@ int main(int argc, char* argv[])
 
                 // Predict the test set
                 deque<ClusterPredictions> baseline_predictions;
+
+                #ifdef USE_GSL
                 deque<ClusterPredictions> linear_predictions;
+                #endif // USE_GSL
+
                 deque<ClusterPredictions> nn_predictions;
                 deque<ClusterPredictions> model_predictions;
 
                 // Predict the *training* set to compute prediction residual
                 deque<ClusterPredictions> residual_baseline_predictions;
+
+                #ifdef USE_GSL
                 deque<ClusterPredictions> residual_linear_predictions;
+                #endif // USE_GSL
+
                 deque<ClusterPredictions> residual_nn_predictions;
                 deque<ClusterPredictions> residual_model_predictions;
 
@@ -808,7 +834,11 @@ int main(int argc, char* argv[])
                     const size_t num_x = train_x_label.size();
 
                     vector<const Features*> baseline_ptr_x(num_x);
+
+                    #ifdef USE_GSL
                     vector<const vector<double>*> linear_ptr_x(num_x);
+                    #endif // USE_GSL
+
                     vector<const Features*> structural_ptr_x(num_x);
 
                     for(size_t i = 0;i < num_x;++i){
@@ -829,6 +859,7 @@ int main(int argc, char* argv[])
 
                         structural_ptr_x[i] = &(j->second);
 
+                        #ifdef USE_GSL
                         unordered_map<string, vector<double> >::const_iterator linear_iter = 
                             linear_regression_features.find(train_x_label[i]);
 
@@ -837,6 +868,7 @@ int main(int argc, char* argv[])
                         }
 
                         linear_ptr_x[i] = &(linear_iter->second);
+                        #endif // USE_GSL
                     }
 
                     // Train the models
@@ -845,10 +877,12 @@ int main(int argc, char* argv[])
 
                     baseline_model.build(train_y, baseline_ptr_x, false /*verbose*/);
 
+                    #ifdef USE_GSL
                     // The linear_model is a vector of feature weights. The *first* element is the bias
                     const vector<double> linear_model = opt.use_linear_regression ? 
                         compute_linear_regression(train_y, linear_ptr_x, false /*no bias*/) :
                         vector<double>(); 
+                    #endif // USE_GSL
 
                     RandomForest model(opt.forest_size, opt.forest_leaf, opt.forest_data_bag, 
                         opt.forest_feature_bag, &rand_buffer);
@@ -867,12 +901,20 @@ int main(int argc, char* argv[])
                         }
 
                         ClusterPredictions local_baseline;
+                        
+                        #ifdef USE_GSL
                         ClusterPredictions local_linear;
+                        #endif // USE_GSL
+
                         ClusterPredictions local_nn;
                         ClusterPredictions local_model;
 
                         local_baseline.reserve( i->size() );
+
+                        #ifdef USE_GSL
                         local_linear.reserve( i->size() );
+                        #endif // USE_GSL
+
                         local_nn.reserve( i->size() );
                         local_model.reserve( i->size() );
 
@@ -895,22 +937,26 @@ int main(int argc, char* argv[])
                                 throw __FILE__ ":main: Unable to lookup structural test features";
                             }
 
+                            #ifdef USE_GSL
                             unordered_map< string, vector<double> >::const_iterator linear_iter = 
                                 linear_regression_features.find(*j);
 
                             if( linear_iter == linear_regression_features.end() ){
                                 throw __FILE__ ":main: Unable to lookup linear test features";
                             }
+                            #endif // USE_GSL
 
                             ave_test_y += affinity_iter->second.value/i->size();
 
                             local_baseline.push_back( make_pair(affinity_iter->second.value, 
                                 baseline_model.predict(baseline_iter->second) ) );
                             
+                            #ifdef USE_GSL
                             if(opt.use_linear_regression){
                                 local_linear.push_back( make_pair(affinity_iter->second.value, 
                                     linear_prediction(linear_model, linear_iter->second) ) );
                             }
+                            #endif // USE_GSL
 
                             if(opt.k_nearest_neighbors > 0){
 
@@ -972,7 +1018,11 @@ int main(int argc, char* argv[])
                         }
 
                         baseline_predictions.push_back(local_baseline);
+
+                        #ifdef USE_GSL
                         linear_predictions.push_back(local_linear);
+                        #endif // USE_GSL
+
                         nn_predictions.push_back(local_nn);
                         model_predictions.push_back(local_model);
                     }
@@ -989,12 +1039,20 @@ int main(int argc, char* argv[])
                         }
 
                         ClusterPredictions local_baseline;
+
+                        #ifdef USE_GSL
                         ClusterPredictions local_linear;
+                        #endif // USE_GSL
+
                         ClusterPredictions local_nn;
                         ClusterPredictions local_model;
 
                         local_baseline.reserve( i->size() );
+
+                        #ifdef USE_GSL
                         local_linear.reserve( i->size() );
+                        #endif // USE_GSL
+
                         local_nn.reserve( i->size() );
                         local_model.reserve( i->size() );
 
@@ -1017,23 +1075,27 @@ int main(int argc, char* argv[])
                                 throw __FILE__ ":main: Unable to lookup structural features (residual)";
                             }
 
+                            #ifdef USE_GSL
                             unordered_map< string, vector<double> >::const_iterator linear_iter = 
                                 linear_regression_features.find(*j);
 
                             if( linear_iter == linear_regression_features.end() ){
                                 throw __FILE__ ":main: Unable to lookup linear regression features (residual)";
                             }
-                            
+                            #endif // USE_GSL
+
                             local_baseline.push_back( make_pair(affinity_iter->second.value, 
                                 baseline_model.predict(baseline_iter->second) ) );
                             
                             local_model.push_back( make_pair(affinity_iter->second.value, 
                                 model.predict(structural_iter->second) ) );
 
+                            #ifdef USE_GSL
                             if(opt.use_linear_regression){
                                 local_linear.push_back( make_pair(affinity_iter->second.value, 
                                     linear_prediction(linear_model, linear_iter->second) ) );
                             }
+                            #endif // USE_GSL
 
                             if(opt.k_nearest_neighbors > 0){
 
@@ -1045,7 +1107,11 @@ int main(int argc, char* argv[])
                         }
 
                         residual_baseline_predictions.push_back(local_baseline);
+
+                        #ifdef USE_GSL
                         residual_linear_predictions.push_back(local_linear);
+                        #endif // USE_GSL
+
                         residual_nn_predictions.push_back(local_nn);
                         residual_model_predictions.push_back(local_model);
                     }
@@ -1060,10 +1126,12 @@ int main(int argc, char* argv[])
                         cerr << "\tincremental baseline r = " << pearson_r(baseline_predictions, opt.use_weighted_stats) 
                             << "; training set residual r = " << pearson_r(residual_baseline_predictions, opt.use_weighted_stats) << endl;
                         
+                        #ifdef USE_GSL
                         if(opt.use_linear_regression){
                             cerr << "\tincremental linear r = " << pearson_r(linear_predictions, opt.use_weighted_stats) 
                                 << "; training set residual r = " << pearson_r(residual_linear_predictions, opt.use_weighted_stats) << endl;
                         }
+                        #endif // USE_GSL
 
                         if(opt.k_nearest_neighbors > 0){
 
@@ -1083,9 +1151,11 @@ int main(int argc, char* argv[])
                     cerr << "number of clusters = " << curr_clustering.size() << "; trial = " << trial << endl;
                     cerr << "\tbaseline r = " << pearson_r(baseline_predictions, opt.use_weighted_stats) << endl;
 
+                    #ifdef USE_GSL
                     if(opt.use_linear_regression){
                         cerr << "\tlinear r = " << pearson_r(linear_predictions, opt.use_weighted_stats) << endl;
                     }
+                    #endif // USE_GSL
 
                     if(opt.k_nearest_neighbors > 0){
                         cerr << "\tk-nn r = " << pearson_r(nn_predictions, opt.use_weighted_stats) << endl;
@@ -1109,6 +1179,7 @@ int main(int argc, char* argv[])
                 baseline_stdev_correlation[c] += r_baseline*r_baseline;
                 baseline_ave_p_value[c] += p_baseline;
 
+                #ifdef USE_GSL
                 float r_linear = 0.0;
                 float p_linear = 0.0;
 
@@ -1123,6 +1194,7 @@ int main(int argc, char* argv[])
                     linear_stdev_correlation[c] += r_linear*r_linear;
                     linear_ave_p_value[c] += p_linear;
                 }
+                #endif // USE_GSL
 
                 float r_nn = 0.0;
                 float p_nn = 0.0;
@@ -1148,9 +1220,11 @@ int main(int argc, char* argv[])
                     cerr << curr_clustering.size() << '\t';
                     cerr << r_baseline << '\t' << p_baseline << '\t';
 
+                    #ifdef USE_GSL
                     if(opt.use_linear_regression){
                         cerr << r_linear << '\t' << p_linear << '\t';
                     }
+                    #endif // USE_GSL
 
                     cerr << r_model << '\t' << p_model << endl;                    
                 }
@@ -1183,23 +1257,37 @@ int main(int argc, char* argv[])
             }
         }
 
+        #ifdef USE_MPI
+
         // Collect all of the results at rank 0 and write the results to the output file
         #define REDUCE(VAR, LEN) \
             MPI_Reduce( (mpi_rank == 0) ? MPI_IN_PLACE : VAR, VAR, LEN, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD)
         
         REDUCE(baseline_ave_correlation, num_clusterings);
         REDUCE(model_ave_correlation, num_clusterings);
+
+        #ifdef USE_GSL
         REDUCE(linear_ave_correlation, num_clusterings);
+        #endif // USE_GSL
+
         REDUCE(nn_ave_correlation, num_clusterings);
 
         REDUCE(baseline_stdev_correlation, num_clusterings);
         REDUCE(model_stdev_correlation, num_clusterings);
+
+        #ifdef USE_GSL
         REDUCE(linear_stdev_correlation, num_clusterings);
+        #endif // USE_GSL
+
         REDUCE(nn_stdev_correlation, num_clusterings);
 
         REDUCE(baseline_ave_p_value, num_clusterings);
         REDUCE(model_ave_p_value, num_clusterings);
+
+        #ifdef USE_GSL
         REDUCE(linear_ave_p_value, num_clusterings);
+        #endif // USE_GSL
+
         REDUCE(nn_ave_p_value, num_clusterings);
 
         REDUCE(baseline_ave_rmse, num_clusterings);
@@ -1215,6 +1303,8 @@ int main(int argc, char* argv[])
 
         REDUCE(ave_prediction, num_affinity);
         REDUCE(stdev_prediction, num_affinity);
+        
+        #endif // USE_MPI
 
         if(mpi_rank == 0){
             
@@ -1222,9 +1312,11 @@ int main(int argc, char* argv[])
                 out << "min_cluster_distance\tnumber_of_clusters\tave_baseline_r\tstdev_baseline_r\tbaseline_p_value"
                     << "\tave_baseline_RMSE\tstdev_baseline_RMSE\tave_baseline_R2\tstdev_baseline_R2";
 
+                #ifdef USE_GSL
                 if(opt.use_linear_regression){
                     out << "\tave_linear_r\tstdev_linear_r\tlinear_p_value";
                 }
+                #endif // USE_GSL
 
                 if(opt.k_nearest_neighbors > 0){
                     out << "\tave_nn_r\tstdev_nn_r\tnn_p_value";
@@ -1238,9 +1330,11 @@ int main(int argc, char* argv[])
                 out << "min_cluster_distance\tnumber_of_clusters\tave_baseline_r"
                     << "\tave_baseline_RMSE\tave_baseline_R2";
 
+                #ifdef USE_GSL
                 if(opt.use_linear_regression){
                     out << "\tave_linear_r";
                 }
+                #endif // USE_GSL
 
                 if(opt.k_nearest_neighbors){
                     out << "\tave_nn_r";
@@ -1277,6 +1371,7 @@ int main(int argc, char* argv[])
                 model_stdev_R2[c] = COMPUTE_STDEV(model_ave_R2, model_stdev_R2);
                 model_stdev_R2_baseline[c] = COMPUTE_STDEV(model_ave_R2_baseline, model_stdev_R2_baseline);
 
+                #ifdef USE_GSL
                 if(opt.use_linear_regression){
 
                     linear_ave_correlation[c] /= opt.num_trial;
@@ -1284,6 +1379,7 @@ int main(int argc, char* argv[])
                     linear_stdev_correlation[c] = COMPUTE_STDEV(linear_ave_correlation, linear_stdev_correlation);
                     linear_ave_p_value[c] /= opt.num_trial;
                 }
+                #endif // USE_GSL
 
                 if(opt.k_nearest_neighbors > 0){
                     
@@ -1299,9 +1395,11 @@ int main(int argc, char* argv[])
                     out << baseline_ave_correlation[c] << '\t' << baseline_stdev_correlation[c] << '\t' << baseline_ave_p_value[c] << '\t';
                     out << baseline_ave_rmse[c] << '\t' << baseline_stdev_rmse[c] << '\t' << baseline_ave_R2[c] << '\t' << baseline_stdev_R2[c] << '\t';
 
+                    #ifdef USE_GSL
                     if(opt.use_linear_regression){
                         out << linear_ave_correlation[c] << '\t' << linear_stdev_correlation[c] << '\t' << linear_ave_p_value[c] << '\t';
                     }
+                    #endif // USE_GSL
 
                     if(opt.k_nearest_neighbors > 0){
                         out << nn_ave_correlation[c] << '\t' << nn_stdev_correlation[c] << '\t' << nn_ave_p_value[c] << '\t';
@@ -1316,9 +1414,11 @@ int main(int argc, char* argv[])
                     out << clusters[c].first << '\t' << clusters[c].second.size() << '\t';
                     out << baseline_ave_correlation[c] << '\t' << baseline_ave_rmse[c] << '\t' << baseline_ave_R2[c];
 
+                    #ifdef USE_GSL
                     if(opt.use_linear_regression){
                         out << linear_ave_correlation[c] << '\t';
                     }
+                    #endif // USE_GSL
 
                     if(opt.k_nearest_neighbors > 0){
                         out << nn_ave_correlation[c] << '\t';
@@ -1378,16 +1478,28 @@ int main(int argc, char* argv[])
 
         DELETE(baseline_ave_correlation);
         DELETE(model_ave_correlation);
+
+        #ifdef USE_GSL
         DELETE(linear_ave_correlation);
+        #endif // USE_GSL
+
         DELETE(nn_ave_correlation);
         DELETE(baseline_stdev_correlation);
         DELETE(model_stdev_correlation);
+
+        #ifdef USE_GSL
         DELETE(linear_stdev_correlation);
+        #endif // USE_GSL
+
         DELETE(nn_stdev_correlation);
 
         DELETE(baseline_ave_p_value);
         DELETE(model_ave_p_value);
+
+        #ifdef USE_GSL
         DELETE(linear_ave_p_value);
+        #endif // USE_GSL
+
         DELETE(nn_ave_p_value);
 
         DELETE(baseline_ave_rmse);
@@ -1403,25 +1515,32 @@ int main(int argc, char* argv[])
 
         DELETE(ave_prediction);
         DELETE(stdev_prediction);
-
-        if(IS_ROOT){
-            cerr << report_run_time() << endl;
-        }
     }
     catch(const char *error){
 
         cerr << "Caught the error: " << error << endl;
+        
+        #ifdef USE_MPI
         MPI_Finalize();
+        #endif // USE_MPI
+
         return EXIT_FAILURE;
     }
     catch(...){
 
         cerr << "Caught an unhandled error" << endl;
+
+        #ifdef USE_MPI
         MPI_Finalize();
+        #endif // USE_MPI
+
         return EXIT_FAILURE;
     }
 
+    #ifdef USE_MPI
     MPI_Finalize();
+    #endif // USE_MPI
+
     return EXIT_SUCCESS;
 }
 
@@ -1429,39 +1548,10 @@ int main(int argc, char* argv[])
 void terminate_program(int m_sig)
 {
     cerr << "[" << mpi_rank << "] caught signal " << m_sig << endl;
-    cerr << report_run_time() << endl;
-
+    
+    #ifdef USE_MPI
     MPI_Abort(MPI_COMM_WORLD, 0);
-}
-
-// Run time computes the total run time. The results are formatted as a string.
-string report_run_time()
-{
-    double elapsed_time = MPI_Wtime() - start_time; // In sec
-
-    const double elapsed_sec = fmod(elapsed_time, 60.0);
-
-    elapsed_time = (elapsed_time - elapsed_sec)/60.0; // In min
-
-    const double elapsed_min = fmod(elapsed_time, 60.0);
-    elapsed_time = (elapsed_time - elapsed_min)/60.0; // In hour
-
-    const double elapsed_hour = fmod(elapsed_time, 24.0);
-    elapsed_time = (elapsed_time - elapsed_hour)/24.0; // In day
-
-    stringstream sout;
-
-    sout << "Run time is "
-            << elapsed_time
-            << " days, "
-            << elapsed_hour
-            << " hours, "
-            << elapsed_min
-            << " min and "
-            << elapsed_sec
-            << " sec";
-
-    return sout.str();
+    #endif // USE_MPI
 }
 
 vector< pair<string, Affinity> > parse_affinity(const string &m_affinity_file)

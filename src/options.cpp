@@ -472,7 +472,11 @@ void Options::load(int argc, char* argv[])
         cerr << "\t[--ignore-kd] (Do not include Kd-based affinity measurements)" << endl;
         cerr << "\t[--ignore-ki] (Do not include Ki-based affinity measurements)" << endl;
         cerr << "\t[--ignore-ic50] (Do not include IC50-based affinity measurements)" << endl;
+
+        #ifdef USE_GSL
         cerr << "\t[--linear] (Include a linear-regression model)" << endl;
+        #endif // USE_GSL
+
         cerr << "\t[--nn <number of nearest neighbors for k-nn regression>]" << endl;
         return;
     }
