@@ -1,6 +1,8 @@
 #ifndef __MPI_UTIL
 #define	__MPI_UTIL
 
+#ifdef USE_MPI
+
 #include <mpi.h>
 
 #include <limits.h>
@@ -366,5 +368,7 @@ void broadcast(T &m_obj, const int &m_src_rank, MPI_Comm m_comm = MPI_COMM_WORLD
 	
 	delete [] buffer;
 }
+
+#endif // USE_MPI
 
 #endif // __MPI_UTIL
