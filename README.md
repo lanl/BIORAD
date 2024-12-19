@@ -21,11 +21,11 @@ This repository contains the necessary computer code and input files to perform 
 - After downloading and installing the Open Babel program, the `scripts/add_hydrogens.sh` script can be used to add hydrogen atoms. This script may be edited to specify the input directory of downloaded PDB files (e.g., `heterodimer_pdb`) and the desired output directory for storing the modified PDB files (e.g., `heterodimer_pdb_hydrogen`)
 
 ## Build the `biorad` software for predicting protein-protein binding affinity
-- The `bioread` program is implemented in C++, using a Linux development environment (Ubuntu), and has the following dependencies that must be installed before the program can be compiled:
-  -  MPI (message passing interface). [OpenMPI](https://www.open-mpi.org/) was used to develop and test the code, but any standard flavor of MPI should work.
-  -  The [GSL - Gnu Scientific Library](https://www.gnu.org/software/gsl/). After installing and building the GSL, please edit the provided BIORAD `src/Makefile` to specify the locations of the GSL `include` directory and the library files (`libgsl.a` and `libgslcblas.a`)
-  -  [optional] A C++ compiler that supports OpenMP
-    -  If your C++ compiler does not support OpenMP (which is the case for the default OSX C++ compiler), please edit the provided `src/Makefile` to comment out the OpenMP flag; `OPENMP = -fopenmp` &rarr; `OPENMP = #-fopenmp`
+- The `bioread` program is implemented in C++ and has the following dependancies:
+  - The Linux operating system (Ubuntu was used for development and testing), due to the use of the `drand48_r()` random number generation function (which is non-portable and GNU-specific).
+  - [optional] A C++ compiler that supports OpenMP.
+    -  If your C++ compiler does not support OpenMP, please edit the provided `src/Makefile` to comment out the OpenMP flag; `OPENMP = -fopenmp` &rarr; `OPENMP = #-fopenmp`
+- Please note that the default OSX compiler does not suport OpenMP and also does not provide the required `drand48_r()` function (which is non-portable and GNU-specific).
 - After the dependencies have been satisfied, run the `make` command from the `src` directory. This will create the `biorad` executable.
 
 # Running the BIORAD software to train and test random forest models for predicting protein-protein binding affinity
