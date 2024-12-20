@@ -1,7 +1,7 @@
 OBJS = options.o mpi_util.o parse_util.o pdb.o cluster.o regression.o features.o seq_overlap.o \
 	rosetta.o hbond.o linear_regression.o
 
-FLAGS = -O3 -Wall -Wno-multichar
+FLAGS = -O3 -Wall -Wno-multichar -std=c++17
 
 # Uncomment to enable parallel processing with MPI
 #USE_MPI = 1
