@@ -21,11 +21,11 @@ This repository contains the necessary computer code and input files to perform 
 - After downloading and installing the Open Babel program, the `scripts/add_hydrogens.sh` script can be used to add hydrogen atoms. This script may be edited to specify the input directory of downloaded PDB files (e.g., `heterodimer_pdb`) and the desired output directory for storing the modified PDB files (e.g., `heterodimer_pdb_hydrogen`)
 
 ## Build the `biorad` software for predicting protein-protein binding affinity
-- The `biorad` program is implemented in C++, can run on Linux or OSC, and has the following dependancies:
+- The `biorad` program is implemented in C++, can run on Linux or macOS, and has the following dependancies:
   - A C++ compiler that supports the C++17 standard (most modern C++ compilers do).
-  - [optional] A C++ compiler that supports OpenMP for multi-threading. By default, multi-threading is disabled to maintain compatibility with the default OSX C++ compiler.
+  - [optional] A C++ compiler that supports OpenMP for multi-threading. By default, multi-threading is disabled to maintain compatibility with the default macOS C++ compiler.
     - If your C++ compiler supports OpenMP (most compilers on Linux), please edit the provided `src/Makefile` to uncomment the OpenMP flag; `OPENMP = #-fopenmp` &rarr; `OPENMP = -fopenmp`
-    - Please note that the default OSX compiler does not suport OpenMP.
+    - Please note that the default macOS compiler does not suport OpenMP.
 - After the dependencies have been satisfied, run the `make` command from the `src` directory. This will create the `biorad` executable.
 
 # Running the BIORAD software to train and test random forest models for predicting protein-protein binding affinity
