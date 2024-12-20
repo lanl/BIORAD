@@ -163,11 +163,6 @@ void RandomForest::build(const vector<WeightedValue> &m_data,
 			profile = time(NULL);
 		}
 
-
-		//randomize(data_ptr.begin(), data_ptr.end(), rand_ptr);
-
-		//vector<XY> data_ptr(num_bagged_data);
-
 		#ifdef STRATIFIED_DATA_SAMPLING
 		// Make a copy of the clustered data pointers
 		vector< deque<XY> > local_data;
@@ -180,11 +175,11 @@ void RandomForest::build(const vector<WeightedValue> &m_data,
 			local_data.push_back(j->second);
 
 			// Randomize the order of the data within each cluster
-			randomize(local_data.back().begin(), local_data.back().end(), rand_ptr);
+			randomize( local_data.back().begin(), local_data.back().end() );
 		}
 
 		// Randomize the order of the clusters
-		randomize(local_data.begin(), local_data.end(), rand_ptr);
+		randomize( local_data.begin(), local_data.end() );
 
 		vector< deque<XY> >::iterator iter = local_data.begin();
 
@@ -215,10 +210,10 @@ void RandomForest::build(const vector<WeightedValue> &m_data,
 			iter->pop_back();
 		}
 		#else
-		randomize(data_ptr.begin(), data_ptr.end(), rand_ptr);
+		randomize( data_ptr.begin(), data_ptr.end() );
 		#endif // STRATIFIED_DATA_SAMPLING
 
-		randomize(feature_index.begin(), feature_index.end(), rand_ptr);
+		randomize( feature_index.begin(), feature_index.end() );
 
 		// Remove any existing tree data (for the case when we are reusing a RandomForest object
 		// for multiple training runs)

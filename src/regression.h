@@ -95,8 +95,7 @@ class RandomForest
 			VARIABLE(size_t, forest_size) \
 			VARIABLE(size_t, forest_leaf) \
 			VARIABLE(float, forest_data_bag) \
-            VARIABLE(float, forest_feature_bag) \
-			VARIABLE(struct drand48_data *, rand_ptr)
+            VARIABLE(float, forest_feature_bag)
 
 		#define VARIABLE(A, B) A B;
 			TREE_MEMBERS
@@ -159,13 +158,11 @@ class RandomForest
 		RandomForest(const size_t &m_forest_size, 
 			const size_t &m_forest_leaf, 
 			const float &m_forest_data_bag,
-            const float &m_forest_feature_bag,
-			struct drand48_data *m_rand_ptr) :
+            const float &m_forest_feature_bag) :
 			forest_size(m_forest_size),
 			forest_leaf(m_forest_leaf),
 			forest_data_bag(m_forest_data_bag),
-            forest_feature_bag(m_forest_feature_bag),
-			rand_ptr(m_rand_ptr)
+            forest_feature_bag(m_forest_feature_bag)
 		{
 		};
 		

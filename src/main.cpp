@@ -49,22 +49,21 @@ vector< pair<string, Affinity> > parse_affinity(const string &m_affinity_file);
 vector< pair<string, Affinity> >::const_iterator affinity_lookup(const vector< pair<string, Affinity> > &m_data, 
     const string &m_pdb, const char *m_file_name, const size_t &m_line_number);
 Affinity surrogate_affinity_score(const PDBComplex &m_mol, const SymmetricMatrix<float> &m_param);
-SymmetricMatrix<float> surrogate_affinity_param(const unordered_map<string, unsigned int> &m_atom_table, struct drand48_data *m_rand_ptr);
+SymmetricMatrix<float> surrogate_affinity_param(const unordered_map<string, unsigned int> &m_atom_table);
 
 #define AFFINITY_LOOKUP(DATA,  PDB) affinity_lookup(DATA, PDB, __FILE__, __LINE__)
 
 float pearson_r(const deque<ClusterPredictions> &m_clusters, const bool m_use_weights);
 float weighted_pearson_r(const deque<ClusterPredictions> &m_clusters);
 float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clusters, 
-    const size_t &m_num_permute, struct drand48_data *m_rand_ptr, const bool m_use_weights);
+    const size_t &m_num_permute, const bool m_use_weights);
 
 float compute_rmse(const deque<ClusterPredictions> &m_clusters, const bool m_use_weights);
 float compute_R2(const deque<ClusterPredictions> &m_predict, const bool m_use_weights);
 float compute_R2(const deque<ClusterPredictions> &m_predict, const deque<ClusterPredictions> &m_reference, 
     const bool m_use_weights);
 
-vector< pair<string, Affinity> > random_affinity(const vector< pair<float, vector<Cluster> > > &m_clusters, 
-    struct drand48_data *m_rand_ptr);
+vector< pair<string, Affinity> > random_affinity(const vector< pair<float, vector<Cluster> > > &m_clusters);
 string cluster_id(Cluster m_cluster /*copy*/);
 
 void remove_atoms(vector<AminoAcidData> &m_chain, const unsigned int &m_atom_type);
@@ -130,11 +129,7 @@ int main(int argc, char* argv[])
         // Every MPI rank gets a different random number seed
         opt.seed += mpi_rank;
 
-        // Convert the seed to a format suitable for the drand48_r random number generator
-        // (this is Linux-specific reentrant version of drand48).
-        struct drand48_data rand_buffer;
-
-        srand48_r(opt.seed, &rand_buffer);
+        srand48(opt.seed); // Seed initialization for *non-thread* safe random number generator 
 
         // Parse the affinity data and list of PDB files to analyze
         if(IS_ROOT){
@@ -394,11 +389,11 @@ int main(int argc, char* argv[])
             if(opt.random_affinity){
 
                 // Generate random "affinity" values that reflect the sequence-based clustering of the protein complexes
-                affinity_data = random_affinity(clusters, &rand_buffer);
+                affinity_data = random_affinity(clusters);
             }
             else if(opt.surrogate_affinity){
 
-                const SymmetricMatrix<float> param = surrogate_affinity_param(atom_table, &rand_buffer);
+                const SymmetricMatrix<float> param = surrogate_affinity_param(atom_table);
 
                 affinity_data.clear();
 
@@ -778,7 +773,7 @@ int main(int argc, char* argv[])
                 deque<ClusterPredictions> residual_model_predictions;
 
                 // Randomly shuffle the order of the protein-complex clusters
-                randomize(curr_clustering.begin(), curr_clustering.end(), &rand_buffer);
+                randomize( curr_clustering.begin(), curr_clustering.end() );
 
                 // Perform cross validation
                 for(size_t fold = 0;fold < opt.num_fold;++fold){
@@ -873,7 +868,7 @@ int main(int argc, char* argv[])
 
                     // Train the models
                     RandomForest baseline_model(opt.forest_size, opt.forest_leaf, opt.forest_data_bag, 
-                        opt.forest_feature_bag, &rand_buffer);
+                        opt.forest_feature_bag);
 
                     baseline_model.build(train_y, baseline_ptr_x, false /*verbose*/);
 
@@ -885,7 +880,7 @@ int main(int argc, char* argv[])
                     #endif // USE_GSL
 
                     RandomForest model(opt.forest_size, opt.forest_leaf, opt.forest_data_bag, 
-                        opt.forest_feature_bag, &rand_buffer);
+                        opt.forest_feature_bag);
 
                     model.build(train_y, structural_ptr_x, false /*verbose*/);
 
@@ -991,13 +986,9 @@ int main(int argc, char* argv[])
                                 #define ADD_NOISE(X) \
                                     for(vector<AminoAcidData>::iterator aa_iter = X.begin();aa_iter != X.end();++aa_iter){ \
                                         for(vector<AtomData>::iterator atom_iter = aa_iter->atoms.begin();atom_iter != aa_iter->atoms.end();++atom_iter){ \
-                                            double r = 0.0; \
-                                            drand48_r(&rand_buffer, &r); \
-                                            atom_iter->x += 2.0*(r - 0.5)*noise; \
-                                            drand48_r(&rand_buffer, &r); \
-                                            atom_iter->y += 2.0*(r - 0.5)*noise; \
-                                            drand48_r(&rand_buffer, &r); \
-                                            atom_iter->x += 2.0*(r - 0.5)*noise; \
+                                            atom_iter->x += 2.0*(drand48() - 0.5)*noise; \
+                                            atom_iter->y += 2.0*(drand48() - 0.5)*noise; \
+                                            atom_iter->x += 2.0*(drand48() - 0.5)*noise; \
                                         } \
                                     }
 
@@ -1168,12 +1159,12 @@ int main(int argc, char* argv[])
                 const float r_baseline = pearson_r(baseline_predictions, opt.use_weighted_stats);
 
                 const float p_baseline = (opt.num_permute == 0) ? -1.0 : pearson_pvalue(r_baseline, 
-                        baseline_predictions, opt.num_permute, &rand_buffer, opt.use_weighted_stats);
+                        baseline_predictions, opt.num_permute, opt.use_weighted_stats);
 
                 const float r_model = pearson_r(model_predictions, opt.use_weighted_stats);
 
                 const float p_model = (opt.num_permute == 0) ? -1.0 : pearson_pvalue(r_model, 
-                        model_predictions, opt.num_permute, &rand_buffer, opt.use_weighted_stats);
+                        model_predictions, opt.num_permute, opt.use_weighted_stats);
 
                 baseline_ave_correlation[c] += r_baseline;
                 baseline_stdev_correlation[c] += r_baseline*r_baseline;
@@ -1188,7 +1179,7 @@ int main(int argc, char* argv[])
                     r_linear = pearson_r(linear_predictions, opt.use_weighted_stats);
 
                     p_linear = (opt.num_permute == 0) ? -1.0 : pearson_pvalue(r_linear, 
-                            linear_predictions, opt.num_permute, &rand_buffer, opt.use_weighted_stats);
+                            linear_predictions, opt.num_permute, opt.use_weighted_stats);
 
                     linear_ave_correlation[c] += r_linear;
                     linear_stdev_correlation[c] += r_linear*r_linear;
@@ -1204,7 +1195,7 @@ int main(int argc, char* argv[])
                     r_nn = pearson_r(nn_predictions, opt.use_weighted_stats);
 
                     p_nn = (opt.num_permute == 0) ? -1.0 : pearson_pvalue(r_nn, 
-                            nn_predictions, opt.num_permute, &rand_buffer, opt.use_weighted_stats);
+                            nn_predictions, opt.num_permute, opt.use_weighted_stats);
 
                     nn_ave_correlation[c] += r_nn;
                     nn_stdev_correlation[c] += r_nn*r_nn;
@@ -1804,7 +1795,7 @@ float weighted_pearson_r(const deque<ClusterPredictions> &m_clusters)
 
 // Compute the two-tailed p-value by permutation testing
 float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clusters, 
-    const size_t &m_num_permute, struct drand48_data *m_rand_ptr, const bool m_use_weights)
+    const size_t &m_num_permute, const bool m_use_weights)
 {
     if(m_num_permute <= 1){
         throw __FILE__ ":weighted_pearson_pvalue: Invalid number of permutations";
@@ -1821,10 +1812,6 @@ float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clus
 
     size_t num_more_correlated = 0;
 
-    // DEBUG
-    //cerr << "num_cluster = " << num_cluster << endl;
-    //cerr << "m_num_permute = " << m_num_permute << endl;
-
     vector<size_t> index(num_cluster);
 
     for(size_t i = 0;i < num_cluster;++i){
@@ -1833,10 +1820,7 @@ float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clus
 
     for(size_t i = 0;i < m_num_permute;++i){
 
-        // DEBUG
-        //cerr << "i = " << i << endl;
-
-        randomize(index.begin(), index.end(), m_rand_ptr);
+        randomize( index.begin(), index.end() );
 
         deque<ClusterPredictions> clusters(num_cluster);
 
@@ -1845,11 +1829,7 @@ float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clus
             int min_size = min( m_clusters[ index[j] ].size(), m_clusters[j].size() );
             int max_size = max( m_clusters[ index[j] ].size(), m_clusters[j].size() );
 
-            long int cluster_size;
-            
-            lrand48_r(m_rand_ptr, &cluster_size);
-
-            cluster_size = min_size + cluster_size%(max_size - min_size + 1);
+            const long int cluster_size = min_size + lrand48()%(max_size - min_size + 1);
 
             clusters[j].resize(cluster_size);
 
@@ -1863,14 +1843,8 @@ float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clus
                 // Combine the x-values from cluster index[i] with the
                 // y-values from cluster i. Sample from each set of cluster values
                 // with replacement. 
-                long int x_index;
-                long int y_index;
-
-                lrand48_r(m_rand_ptr, &x_index);
-                lrand48_r(m_rand_ptr, &y_index);
-
-                x_index = x_index%m_clusters[ index[j] ].size();
-                y_index = y_index%m_clusters[j].size();
+                const long int x_index = lrand48()%m_clusters[ index[j] ].size();
+                const long int y_index = lrand48()%m_clusters[j].size();
                 
                 clusters[j][k] = make_pair(m_clusters[ index[j] ][x_index].first, m_clusters[j][y_index].second);
 
@@ -1896,8 +1870,7 @@ float pearson_pvalue(float m_r /*copy*/, const deque<ClusterPredictions> &m_clus
     return ( (float)num_more_correlated )/m_num_permute;
 }
 
-vector< pair<string, Affinity> > random_affinity(const vector< pair< float, vector<Cluster> > > &m_clusters, 
-    struct drand48_data *m_rand_ptr)
+vector< pair<string, Affinity> > random_affinity(const vector< pair< float, vector<Cluster> > > &m_clusters)
 {
     unordered_map<string, Affinity> affinity; // <-- individual, per-complex affinity values
     unordered_set<string> assigned_clusters; // <-- cluster that have already been assigned affinity values
@@ -1925,11 +1898,7 @@ vector< pair<string, Affinity> > random_affinity(const vector< pair< float, vect
             assigned_clusters.insert(id);
 
             // Assign a random number to each cluster
-            double r = 0.0;
-
-            drand48_r(m_rand_ptr, &r);
-
-            r *= weight;
+            const double r = weight*drand48();
 
             for(Cluster::const_iterator k = j->begin();k != j->end();++k){
 
@@ -1944,16 +1913,7 @@ vector< pair<string, Affinity> > random_affinity(const vector< pair< float, vect
     ret.reserve( affinity.size() );
 
     for(unordered_map<string, Affinity>::const_iterator i = affinity.begin();i != affinity.end();++i){
-
-        // DEBUG
-        //cout << i->first << '\t' << i->second << endl;
-
-        //double r = 0.0;
-
-        //drand48_r(m_rand_ptr, &r);
-
         ret.push_back( make_pair(i->first, i->second) );
-        //ret.push_back( make_pair(i->first, r) );
     }
 
     // The affinity data structure must be sorted by id to enable the use of lower_bound
@@ -1996,7 +1956,7 @@ void remove_atoms(vector<AminoAcidData> &m_chain, const unsigned int &m_atom_typ
     }
 }
 
-SymmetricMatrix<float> surrogate_affinity_param(const unordered_map<string, unsigned int> &m_atom_table, struct drand48_data *m_rand_ptr)
+SymmetricMatrix<float> surrogate_affinity_param(const unordered_map<string, unsigned int> &m_atom_table)
 {
     // Collect the atom types
     unsigned int max_atom_type = 0;
@@ -2014,12 +1974,8 @@ SymmetricMatrix<float> surrogate_affinity_param(const unordered_map<string, unsi
     for(unsigned int i = 0;i < max_atom_type;++i){
         for(unsigned int j = i;j < max_atom_type;++j){
 
-             // Assign a random number to each cluster
-            double r = 0.0;
-
-            drand48_r(m_rand_ptr, &r);
-
-            weight(i, j) = r;
+            // Assign a random number to each cluster
+            weight(i, j) = drand48();
         }
     }
 
