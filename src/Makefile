@@ -15,7 +15,7 @@ else
 endif
 
 PROFILE = #-g #-pg
-OPENMP = -fopenmp
+OPENMP = #-fopenmp
 	
 INC = -I. 
 LIBS = -lm
